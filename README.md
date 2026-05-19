@@ -84,7 +84,7 @@ For example, this will only cause torrents using Debian's tracker whose name
 includes `amd64` to be imported :
 
 ```
-torrent.get(bytes, b'announce') == b'http://bttracker.debian.org:6969/announce' and b'amd64' in torrent.get(BencodeType, b'info').get(bytes, b'name')
+torrent.get(bytes, b'announce') == b'http://bttracker.debian.org:6969/announce' and b'amd64' in torrent.get(BencodeDict, b'info').get(bytes, b'name')
 ```
 
 # Mappings
