@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Literal, cast, overload
 from collections.abc import Generator
 import sys
@@ -265,6 +266,28 @@ def transmission_get_limit(resume: BencodeDict, limit_kind: str) -> int:
         case 0:  # TR_*LIMIT_GLOBAL
             return -2  # BitTorrent::Torrent::USE_GLOBAL_*
         case 1:  # TR_*LIMIT_SINGLE
+            if limit_kind == "ratio":
+                try:
+                    ratio_limit = limit_obj.get(bytes, limit_key)
+                except ConversionError:
+                    ratio_limit = limit_obj.get(int, limit_key)
+
+                try:
+                    ratio = (
+                        Decimal(ratio_limit.decode("ascii"))
+                        if isinstance(ratio_limit, bytes)
+                        else Decimal(ratio_limit)
+                    )
+                except (InvalidOperation, UnicodeDecodeError) as exc:
+                    raise ConversionError(
+                        f"{limit_obj._path}.{limit_key.decode()} is not a valid ratio limit"
+                    ) from exc
+
+                if not ratio.is_finite():
+                    raise ConversionError(
+                        f"{limit_obj._path}.{limit_key.decode()} is not a finite ratio limit"
+                    )
+                return int(ratio * 1000)
             return limit_obj.get(int, limit_key)
         case 2:  # TR_*LIMIT_UNLIMITED
             return -1  # BitTorrent::Torrent::NO_*_LIMIT
