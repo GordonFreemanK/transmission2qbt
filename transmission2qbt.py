@@ -2,11 +2,12 @@
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Literal, cast, overload
+from typing import Literal, Tuple, cast, overload
 from collections.abc import Generator
 import sys
 import os
 import argparse
+import locale
 import logging
 import re
 import shutil
@@ -478,13 +479,17 @@ def transmission_get_files(
 
 
 def map_resume_to_qbt(
-    info_hash: str, torrent: BencodeDict, resume: BencodeDict, add_paused: bool
+    info_hash: str, torrent: BencodeDict, resume: BencodeDict, add_paused: bool,
+    path_sub: Tuple[re.Pattern[bytes], bytes] | None
 ) -> dict[bytes, BencodeType]:
     torrent_info = torrent.get(BencodeDict, b"info")
     downloading_time_seconds = resume.get(int, b"downloading-time-seconds")
     seeding_time_seconds = resume.get(int, b"seeding-time-seconds")
     name = resume.get(bytes, b"name")
     paused = add_paused or resume.get(int, b"paused")
+    save_path = resume.get(bytes, b"destination")
+    if path_sub is not None:
+        save_path = path_sub[0].sub(path_sub[1], save_path)
 
     qbt_resume_data: BencodeType = {
         b"file-format": b"libtorrent resume file",
@@ -503,14 +508,14 @@ def map_resume_to_qbt(
         b"download_rate_limit": transmission_get_speed_limit(
             resume, b"speed-limit-down"
         ),
-        b"save_path": resume.get(bytes, b"destination"),
+        b"save_path": save_path,
         b"paused": paused,
         b"sequential_download": resume.get(int, b"sequentialDownload", default=0),
         b"file_priority": list(transmission_get_file_priorities(torrent_info, resume)),
         b"qBt-name": name,
         b"qBt-ratioLimit": transmission_get_limit(resume, "ratio"),
         b"qBt-inactiveSeedingTimeLimit": int(transmission_get_limit(resume, "idle")),
-        b"qBt-savePath": resume.get(bytes, b"destination"),
+        b"qBt-savePath": save_path,
         b"pieces": transmission_get_pieces(torrent, resume),
     }
 
@@ -532,6 +537,8 @@ def map_resume_to_qbt(
 
     incomplete_dir = resume.get(bytes, b"incomplete_dir", optional=True)
     if incomplete_dir is not None:
+        if path_sub is not None:
+            incomplete_dir = path_sub[0].sub(path_sub[1], incomplete_dir)
         qbt_resume_data[b"qBt-downloadPath"] = incomplete_dir
 
     if paused == 1:
@@ -561,6 +568,7 @@ class TransmissionQbtImporter:
         self._filter = args.filter
         self._add_paused = args.add_paused
         self._dry_run = args.dry_run
+        self._path_sub = args.path_sub
         self._torrent_file_300_rgx = re.compile("([0-9a-f]{40})\\.torrent")
         self._torrent_file_294_rgx = re.compile("\\.[0-9a-f]{16}\\.torrent$")
 
@@ -572,7 +580,7 @@ class TransmissionQbtImporter:
         resume: BencodeDict,
     ) -> None:
         qbt_resume_data = map_resume_to_qbt(
-            info_hash, torrent, resume, self._add_paused
+            info_hash, torrent, resume, self._add_paused, self._path_sub
         )
         qbt_resume_enc = encode(qbt_resume_data)
         qbt_resume_path = os.path.join(self._target_dir, info_hash + ".fastresume")
@@ -588,7 +596,7 @@ class TransmissionQbtImporter:
             try:
                 with open(qbt_resume_path, "wb") as resumf:
                     resumf.write(qbt_resume_enc)
-                shutil.copy(source_tor_abs_path, qbt_torrent_path)
+                shutil.copyfile(source_tor_abs_path, qbt_torrent_path)
                 logging.debug(
                     f"Successfully imported {os.path.basename(source_tor_abs_path)} ({info_hash})"
                 )
@@ -708,6 +716,13 @@ def main() -> int:
         help="Optional flag to add all torrents paused rather than using the Transmission status",
     )
     parser.add_argument(
+        "--path-sub",
+        "-s",
+        type=lambda s: s.encode(locale.getpreferredencoding()),
+        nargs=2,
+        help="RegExp pattern and replacement for updating paths (format: https://docs.python.org/3/library/re.html#re.sub)"
+    )
+    parser.add_argument(
         "--dry-run",
         "-d",
         action="store_true",
@@ -723,6 +738,8 @@ def main() -> int:
 
     args = cast(Args, parser.parse_args())
     logging.basicConfig(level=args.log_level, format="%(levelname)s: %(message)s")
+    if args.path_sub is not None:
+        args.path_sub = re.compile(args.path_sub[0]), args.path_sub[1]
 
     try:
         TransmissionQbtImporter(args).scan()

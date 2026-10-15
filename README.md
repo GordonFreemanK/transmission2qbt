@@ -77,15 +77,33 @@ For help including information about the supported parameters, run:
 
 ## Filter
 
-The `--filter`/`f` argument accepts a Python expression that can be used for filtering torrents which are going to be imported to qBt. The parsed torrent file is named `torrent` and its associated Transmission resume data is `resume`. If the expression returns anything other than `True` or throws an exception, the torrent is skipped.
-Access to data is done with helper methods get(type, key) for dicts and get(type, index) and cast(type) for lists. For more information check the BencodeList and BencodeType class documentation in the script.
+The `--filter`/`-f` argument accepts a Python expression that can be used for filtering torrents which are going to be imported to qBt. The parsed torrent file is named `torrent` and its associated Transmission resume data is `resume`. If the expression returns anything other than `True` or throws an exception, the torrent is skipped.
+Access to data is done with helper methods `get(type, key)` for dicts and `get(type, index)` and `cast(type)` for lists. For more information check the BencodeList and BencodeType class documentation in the script.
 
 For example, this will only cause torrents using Debian's tracker whose name
 includes `amd64` to be imported :
 
-```
+```py
 torrent.get(bytes, b'announce') == b'http://bttracker.debian.org:6969/announce' and b'amd64' in torrent.get(BencodeDict, b'info').get(bytes, b'name')
 ```
+
+## Paths
+
+The `--path-sub`/`-s` argument accepts a Python RegExp matching pattern and
+substitution expression. The format is documented
+[in the Python documentation](https://docs.python.org/3/library/re.html#re.sub).
+
+
+For example, to replace the /home/user/Musik prefix with /media/NAS_Media when
+migrating to qBittorrent on HomeAssistant with mounted NAS drive:
+
+```command
+./transmission2qbt.py -s '^/home/user/Musik/(.*)$' '/media/NAS_Media/\1' ~/.config/transmission /run/user/1000/gvfs/smb-share:server=homeassistant.local,share=addon_configs/db21ed7f_qbittorrent/qBittorrent/BT_backup
+```
+
+It is not possible to specify multiple substitutions, use alternatives or
+filters (ie: `-f 'resume.get(bytes, b"destination").startswith(b"/home/user/Musik/")'`
+for migrating torrents from multiple locations.
 
 # Mappings
 
